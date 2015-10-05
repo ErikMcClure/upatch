@@ -1,0 +1,125 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="zdelta">
+      <UniqueIdentifier>{875ffa28-c1d5-408e-a59f-fddb9a339ab5}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="zdelta-2.1\adler32.c">
+      <Filter>zdelta</Filter>
+    </ClCompile>
+    <ClCompile Include="zdelta-2.1\deflate.c">
+      <Filter>zdelta</Filter>
+    </ClCompile>
+    <ClCompile Include="zdelta-2.1\infblock.c">
+      <Filter>zdelta</Filter>
+    </ClCompile>
+    <ClCompile Include="zdelta-2.1\infcodes.c">
+      <Filter>zdelta</Filter>
+    </ClCompile>
+    <ClCompile Include="zdelta-2.1\inffast.c">
+      <Filter>zdelta</Filter>
+    </ClCompile>
+    <ClCompile Include="zdelta-2.1\inflate.c">
+      <Filter>zdelta</Filter>
+    </ClCompile>
+    <ClCompile Include="zdelta-2.1\inftrees.c">
+      <Filter>zdelta</Filter>
+    </ClCompile>
+    <ClCompile Include="zdelta-2.1\infutil.c">
+      <Filter>zdelta</Filter>
+    </ClCompile>
+    <ClCompile Include="zdelta-2.1\trees.c">
+      <Filter>zdelta</Filter>
+    </ClCompile>
+    <ClCompile Include="zdelta-2.1\zd_mem.c">
+      <Filter>zdelta</Filter>
+    </ClCompile>
+    <ClCompile Include="zdelta-2.1\zdelta.c">
+      <Filter>zdelta</Filter>
+    </ClCompile>
+    <ClCompile Include="zdelta-2.1\zutil.c">
+      <Filter>zdelta</Filter>
+    </ClCompile>
+    <ClCompile Include="md5.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="util.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="zdelta-2.1\deflate.h">
+      <Filter>zdelta</Filter>
+    </ClInclude>
+    <ClInclude Include="zdelta-2.1\infblock.h">
+      <Filter>zdelta</Filter>
+    </ClInclude>
+    <ClInclude Include="zdelta-2.1\infcodes.h">
+      <Filter>zdelta</Filter>
+    </ClInclude>
+    <ClInclude Include="zdelta-2.1\inffast.h">
+      <Filter>zdelta</Filter>
+    </ClInclude>
+    <ClInclude Include="zdelta-2.1\inffixed.h">
+      <Filter>zdelta</Filter>
+    </ClInclude>
+    <ClInclude Include="zdelta-2.1\inftrees.h">
+      <Filter>zdelta</Filter>
+    </ClInclude>
+    <ClInclude Include="zdelta-2.1\infutil.h">
+      <Filter>zdelta</Filter>
+    </ClInclude>
+    <ClInclude Include="zdelta-2.1\tailor.h">
+      <Filter>zdelta</Filter>
+    </ClInclude>
+    <ClInclude Include="zdelta-2.1\trees.h">
+      <Filter>zdelta</Filter>
+    </ClInclude>
+    <ClInclude Include="zdelta-2.1\zd_mem.h">
+      <Filter>zdelta</Filter>
+    </ClInclude>
+    <ClInclude Include="zdelta-2.1\zdconf.h">
+      <Filter>zdelta</Filter>
+    </ClInclude>
+    <ClInclude Include="zdelta-2.1\zdlib.h">
+      <Filter>zdelta</Filter>
+    </ClInclude>
+    <ClInclude Include="zdelta-2.1\zutil.h">
+      <Filter>zdelta</Filter>
+    </ClInclude>
+    <ClInclude Include="md5.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="uPatch.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="version.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="payload.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="uPatch.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+</Project>

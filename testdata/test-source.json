@@ -1,0 +1,13 @@
+{
+  "version": [1,0,0,0],
+  "hops": [
+    { "to": [1,0,0,0],
+      "md5": "22ca8686bfa31a2ae5f55a7f60009e14",
+      "mirrors" : [ "fake" ]
+    },
+    { "from": [0,9,0,1], "to": [1,0,0,0],
+      "md5": "22ca8686bfa31a2ae5f55a7f60009e14",
+      "mirrors" : [ "fake" ]
+    },
+  ]
+}
