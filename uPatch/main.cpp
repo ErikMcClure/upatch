@@ -319,11 +319,19 @@ char ApplyUpdate(const char* file, bool install)
       //pack.admin TODO: if admin privileges are necessary, start an admin version and bail out
       std::vector<cStr> deltas;
       bool valid = true;
+      unsigned char md5[16];
       for(auto& v : pack.update)
       {
         if(v.type == PAYLOAD_DELTA)
         {
-        
+          BinaryPayload& p = v.payload.get<BinaryPayload>();
+          cStr temp = p.path + ".upatch_delta";
+          applydelta(p.file,
+            std::fstream(p.path, std::ios_base::in | std::ios_base::binary),
+            std::fstream(temp, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc));
+          calcmd5(std::fstream(temp, std::ios_base::in | std::ios_base::binary), md5);
+          valid = !memcmp(md5, p.md5, 16);
+          if(!valid) break;
         }
       }
       if(valid)
