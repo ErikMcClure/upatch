@@ -408,6 +408,7 @@ namespace bss_util {
     CT_ _length; // Total length of the array in number of elements
     CT_ _element; // Size of each element
   };
+
 }
 
 #endif
