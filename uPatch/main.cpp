@@ -9,6 +9,7 @@
 #include "bss-util/cJSON.h"
 #include "bss-util/cUBJSON.h"
 #include "bss-util/os.h"
+#include "bss-util/bss_stream.h"
 #include <iostream>
 #include <fstream>
 
@@ -305,6 +306,7 @@ void SaveOptions(Options& opt, const char* file)
 
 char ApplyUpdate(const char* file, bool install)
 {
+  static const char* DELTA_EXT = ".upatch_delta";
   char ret = ERR_SUCCESS;
   cStr ofile(file);
   ofile += ".inflate";
@@ -320,25 +322,77 @@ char ApplyUpdate(const char* file, bool install)
       std::vector<cStr> deltas;
       bool valid = true;
       unsigned char md5[16];
-      for(auto& v : pack.update)
+      for(auto& v : pack.update) // Loop over ADD/DELTA and verify the files exist, we have write permission, and the resulting delta-patched file is correct.
       {
-        if(v.type == PAYLOAD_DELTA)
+        switch(v.type)
+        {
+        case PAYLOAD_ADD:
+          valid = CheckWritePermission(v.payload.get<BinaryPayload>().path);
+          break;
+        case PAYLOAD_DELTA:
         {
           BinaryPayload& p = v.payload.get<BinaryPayload>();
-          cStr temp = p.path + ".upatch_delta";
-          applydelta(p.file,
+          valid = CheckWritePermission(p.path) && FileExists(p.path);
+          if(!valid) break;
+          cStr temp = p.path + DELTA_EXT;
+          DynArrayIBuf<unsigned char> sbuf(p.file);
+          std::istream fs(&sbuf);
+          applydelta(fs,
             std::fstream(p.path, std::ios_base::in | std::ios_base::binary),
             std::fstream(temp, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc));
           calcmd5(std::fstream(temp, std::ios_base::in | std::ios_base::binary), md5);
           valid = !memcmp(md5, p.md5, 16);
-          if(!valid) break;
         }
+          break;
+        }
+        if(!valid) break;
       }
       if(valid)
       {
         for(auto& v : pack.update)
         {
-          
+          switch(v.type)
+          {
+          case PAYLOAD_ADD:
+          {
+            BinaryPayload& p = v.payload.get<BinaryPayload>();
+            std::fstream f(p.path, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
+            f.write((char*)p.file.begin(), p.file.Length());
+            f.close();
+          }
+            break;
+          case PAYLOAD_DELTA:
+          {
+            BinaryPayload& p = v.payload.get<BinaryPayload>();
+            if(std::remove(p.path) != 0 || std::rename(p.path + DELTA_EXT, p.path) != 0) // if this fails, we still have write access, but things get tricky.
+            {
+              cStr temp = p.path + DELTA_EXT;
+              std::fstream fd(temp, std::ios_base::in | std::ios_base::binary);
+              fd.seekg(0, std::ios_base::end);
+              size_t sz = fd.tellg();
+              std::unique_ptr<char[]> buf(new char[sz]);
+              fd.seekg(0);
+              fd.read(buf.get(), sz);
+              fd.close();
+              std::fstream f(p.path, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
+              f.write(buf.get(), sz);
+              f.close();
+              std::remove(temp);
+            }
+          }
+            break;
+          case PAYLOAD_REMOVE:
+            std::remove(v.payload.get<BinaryPayload>().path);
+            break;
+#ifdef BSS_PLATFORM_WIN32
+          case PAYLOAD_ADDREG:
+            break;
+          case PAYLOAD_REMOVEREG:
+            break;
+          case PAYLOAD_INSTALLINFO:
+            break;
+#endif
+          }
         }
       }
       else
@@ -359,9 +413,20 @@ char ApplyUpdate(const char* file, bool install)
   return ret;
 }
 
-void TriggerSelfUpdate()
+void TriggerSelfUpdate(int argc)
 {
 
+}
+
+cStr GetCurrentEXE()
+{
+#ifdef BSS_PLATFORM_WIN32
+  wchar_t buf[MAX_PATH];
+  GetModuleFileNameW(0, buf, MAX_PATH);
+  return cStr(buf);
+#else //POSIX
+
+#endif
 }
 
 int main(int argc, char** argv)
@@ -373,7 +438,6 @@ int main(int argc, char** argv)
   cStr reg2;
   cStr wait;
   cStr execute;
-  cStr selfupdate;
   Options optbase; // This is what we'll modify and write back to upatch.cfg
   Options opt; // This stores overriden options
   char level = 9;
@@ -397,7 +461,7 @@ int main(int argc, char** argv)
     case 'd': mode = MODE_DOWNLOAD; if(n>1) path1 = p[1]; break; // Check for update and download it, returning zero once it has successfully downloaded
     case 'u': // Check for update, check if already downloaded, install update
       if(n > 1) path1 = p[1]; // Overrides what pack file to use
-      if(n > 1) path2 = p[2]; // Normally the update is executed on the directory the EXE is in, but this overrides it.
+      if(n > 2) path2 = p[2]; // Normally the update is executed on the directory the EXE is in, but this overrides it.
       mode = MODE_UPDATE;
       break; 
     case 'w': if(n>1) wait = p[1]; // Wait until the given process has exited before starting operation
@@ -412,7 +476,11 @@ int main(int argc, char** argv)
       OverrideOptions(opt, p, n);
       break;
     case 's': // Executes a self-update by copying this EXE to the specified path
-      if(n>1) selfupdate = p[1];
+      if(n > 1)
+      {
+        std::remove(p[1]);
+        std::rename(GetCurrentEXE().c_str(), p[1]);
+      }
       break;
     case 'r': // embeds a set of registry modifications, or compares two registry modifications and embeds the difference between them.
       if(n>1) reg1 = p[1]; 
@@ -478,7 +546,7 @@ int main(int argc, char** argv)
 
     if(optbase.selfdownload.size() > 0)
     {
-      TriggerSelfUpdate();
+      TriggerSelfUpdate(argc, argv);
       return ERR_SUCCESS;
     }
 

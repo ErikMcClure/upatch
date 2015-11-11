@@ -2,7 +2,9 @@
 #include "bss-util/cStr.h"
 #include "zlib/zlib.h"
 #include "md5.h"
+#include "zdelta-2.1\zdlib.h"
 #include <iostream>
+#include <fstream>
 
 bool DeleteSelf()
 {
@@ -237,4 +239,86 @@ void calcmd5(std::istream& in, unsigned char(&out)[16])
   } while(!!in && !in.eof() && in.peek() != -1);
 
   MD5_Final(out, &ctx);
+}
+
+bool CheckWritePermission(const char* file)
+{
+  std::fstream f(file, std::ios_base::out | std::ios_base::binary);
+  if(!f)
+  {
+    std::cout << "ERROR: Do not have write permissions to " << file << std::endl;
+    return false;
+  }
+  f.close();
+  return true;
+}
+
+char packdelta(std::istream& ofile, std::istream& nfile, std::ostream& out)
+{
+  //static const int BUFFER_SIZE = 0b10000000000000000000;
+  static const int BUFFER_SIZE = 512;
+
+  char refbuf[BUFFER_SIZE];
+  char targetbuf[BUFFER_SIZE];
+  char outbuf[BUFFER_SIZE];
+  int rval;
+  zd_stream s;
+  
+  s.base[0] = (Bytef*)refbuf;
+  s.base_avail[0] = BUFFER_SIZE;
+  s.base_out[0] = 0;
+  s.refnum = 1;
+
+  s.next_in = (Bytef*)targetbuf;
+  s.total_in = 0;
+  s.avail_in = BUFFER_SIZE;
+
+  s.next_out = (Bytef*)outbuf;
+  s.total_out = 0;
+  s.avail_out = BUFFER_SIZE;
+
+  s.zalloc = (alloc_func)0;
+  s.zfree = (free_func)0;
+  s.opaque = (voidpf)0;
+
+  ofile.read(refbuf, BUFFER_SIZE);
+  nfile.read(targetbuf, BUFFER_SIZE);
+
+  /* init huffman coder */
+  rval = zd_deflateInit(&s, ZD_DEFAULT_COMPRESSION);
+  if(rval != ZD_OK)
+  {
+    fprintf(stderr, "%s error: %d\n", "deflateInit", rval);
+    return rval;
+  }
+
+  /* compress the data */
+  while((rval = zd_deflate(&s, ZD_FINISH)) == ZD_OK) {
+    ofile.read(refbuf, BUFFER_SIZE);
+    s.base[0] = (Bytef*)refbuf;
+    s.base_avail[0] = BUFFER_SIZE;
+
+    nfile.read(targetbuf, BUFFER_SIZE);
+    s.next_in = (Bytef*)targetbuf;
+    s.avail_in = BUFFER_SIZE;
+
+    out.write(outbuf, BUFFER_SIZE - s.avail_out);
+    s.next_out = (Bytef*)outbuf;
+    s.avail_out = BUFFER_SIZE;
+  }
+
+  out.write(outbuf, BUFFER_SIZE - s.avail_out);
+
+  if(rval != ZD_STREAM_END) {
+    fprintf(stderr, "%s error: %d\n", "deflateInit", rval);
+    zd_deflateEnd(&s);
+    return rval;
+  }
+
+  return zd_deflateEnd(&s);
+}
+
+char applydelta(std::istream& delta, std::istream& file, std::ostream& out)
+{
+
 }

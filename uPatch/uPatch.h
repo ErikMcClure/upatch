@@ -77,5 +77,6 @@ extern char applydelta(std::istream& delta, std::istream& file, std::ostream& ou
 extern char packzip(std::istream& in, std::ostream& out, char level = 9);
 extern char unpackzip(std::istream& in, std::ostream& out);
 extern void calcmd5(std::istream& in, unsigned char(&out)[16]);
+extern bool CheckWritePermission(const char* file);
 
 #endif
