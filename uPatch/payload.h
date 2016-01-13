@@ -19,7 +19,7 @@ struct RegPayload
 {
   cStr path;
   cStr sdata;
-  uint64 idata;
+  uint64_t idata;
   char type; // REG_DWORD, REG_SZ, REG_QWORD, REG_BINARY, etc. Use -1 if there is no data
 };
 

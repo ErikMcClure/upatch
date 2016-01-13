@@ -142,12 +142,12 @@ void OverrideOptions(Options& opt, const char* const* p, size_t n)
   case 1: opt.self = p[2]; break;
   case 2: opt.target = p[2]; break;
   case 3:
-    for(uint i = 1; i < n; ++i)
+    for(uint32_t i = 1; i < n; ++i)
       opt.download.push_back(p[i]);
     break;
   case 4: opt.selfdownload = p[2];
   case 5:
-    for(uint i = 1; i < n; ++i)
+    for(uint32_t i = 1; i < n; ++i)
       opt.trackfiles.push_back(p[i]);
     break;
   case 7: opt.maxconcurrent = atoi(p[2]); break;
@@ -493,7 +493,7 @@ int main(int argc, char** argv)
       mode = (n>1)?MODE_UNINSTALL_WAIT:MODE_UNINSTALL;
       break; 
     case 'i': // Shortcut to generating installation registry entries
-      for(uint i = 1; i < n; ++i)
+      for(uint32_t i = 1; i < n; ++i)
         installer.push_back(p[i]);
       mode = MODE_PACK;
       break;
