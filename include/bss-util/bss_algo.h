@@ -1,4 +1,4 @@
-// Copyright ©2015 Black Sphere Studios
+// Copyright ©2016 Black Sphere Studios
 // For conditions of distribution and use, see copyright notice in "bss_util.h"
 
 #ifndef __BSS_ALGO_H__
@@ -10,6 +10,7 @@
 #include "bss_vector.h"
 #include "cDynArray.h"
 #include "cDisjointSet.h"
+#include "delegate.h"
 #include <algorithm>
 #include <random>
 #include <array>
@@ -85,7 +86,7 @@ namespace bss_util {
   BSS_FORCEINLINE static CT_ BSS_FASTCALL binsearch_exact(const T(&arr)[I], const T& data) { return binsearch_exact<T, T, CT_, CFunc>(arr, data, 0, I); }
 
   // Implementation of an xorshift64star generator. x serves as the generator state, which should initially be set to the RNG seed.
-  unsigned __int64 static xorshift64star(unsigned __int64& x)
+  uint64_t static xorshift64star(uint64_t& x)
   {
     x ^= x >> 12;
     x ^= x << 25;
@@ -94,7 +95,7 @@ namespace bss_util {
   }
 
   // Implementation of 2^1024-1 period xorshift generator. x is the 16*64 bit state, plus 1 extra integer for counting indices.
-  unsigned __int64 static xorshift1024star(unsigned __int64(&x)[17])
+  uint64_t static xorshift1024star(uint64_t(&x)[17])
   {
     uint64_t x0 = x[x[16]];
     uint64_t x1 = x[x[16] = (x[16] + 1) & 15];
@@ -105,7 +106,7 @@ namespace bss_util {
   }
 
   // Generates a seed for xorshift1024star from a 64-bit value
-  void static genxor1024seed(unsigned __int64 x, unsigned __int64(&seed)[17])
+  void static genxor1024seed(uint64_t x, uint64_t(&seed)[17])
   {
     xorshift64star(x);
     for(unsigned char i = 0; i < 16; ++i)
@@ -119,7 +120,7 @@ namespace bss_util {
   public:
     BSS_FORCEINLINE static T base_min() { return std::numeric_limits<T>::min(); }
     BSS_FORCEINLINE static T base_max() { return std::numeric_limits<T>::max(); }
-    BSS_FORCEINLINE static T base_transform(unsigned __int64 x) { return (T)x; }
+    BSS_FORCEINLINE static T base_transform(uint64_t x) { return (T)x; }
   };
 
   template<>
@@ -128,9 +129,9 @@ namespace bss_util {
   public:
     BSS_FORCEINLINE static float base_min() { return base_transform(0xFFFFFFFFFFFFFFFF); }
     BSS_FORCEINLINE static float base_max() { return base_transform(0x7FFFFFFFFFFFFFFF); }
-    BSS_FORCEINLINE static float base_transform(unsigned __int64 x)
+    BSS_FORCEINLINE static float base_transform(uint64_t x)
     { 
-      unsigned __int32 y=(unsigned __int32)x;
+      uint32_t y=(uint32_t)x;
       y = (y&0xBFFFFFFF)+0x1F800000; // Mask out the top exponent bit to force exponent to 0-127 range, then add 63 to the exponent to get it in [63,190] range ([-64,63] when biased)
       return *(float*)(&y); // convert our integer into a float, assuming IEEE format
     }
@@ -142,23 +143,23 @@ namespace bss_util {
   public:
     BSS_FORCEINLINE static double base_min() { return base_transform(0xFFFFFFFFFFFFFFFF); }
     BSS_FORCEINLINE static double base_max() { return base_transform(0x7FFFFFFFFFFFFFFF); }
-    BSS_FORCEINLINE static double base_transform(unsigned __int64 x)
+    BSS_FORCEINLINE static double base_transform(uint64_t x)
     {
       x = (x&0xBFFFFFFFFFFFFFFF)+0x1FF0000000000000; // Mask out the top exponent bit to force exponent to 0-1023 range, then add 511 to the exponent to get it in [511,1534] range ([-512,511] when biased)
       return *(double*)(&x); // convert our integer into a double, assuming IEEE format
     }
   };
 
-  template<typename T = unsigned __int64>
+  template<typename T = uint64_t>
   class BSS_COMPILER_DLLEXPORT xorshift_engine : protected xorshift_engine_base<T>
   {
   public:
     xorshift_engine() { seed(); }
-    explicit xorshift_engine(unsigned __int64 s) { seed(s); }
-    explicit xorshift_engine(unsigned __int64 s[16]) { seed(s); }
+    explicit xorshift_engine(uint64_t s) { seed(s); }
+    explicit xorshift_engine(uint64_t s[16]) { seed(s); }
     void seed() { std::random_device rd; genxor1024seed(rd(), _state); }
-    void seed(unsigned __int64 s) { genxor1024seed(s, _state); }
-    void seed(unsigned __int64 s[16]) { for(int i = 0; i < 16; ++i) _state[i]=s[i]; _state[16]=0; }
+    void seed(uint64_t s) { genxor1024seed(s, _state); }
+    void seed(uint64_t s[16]) { for(int i = 0; i < 16; ++i) _state[i]=s[i]; _state[16]=0; }
     void discard(unsigned long long z) { for(int i = 0; i < z; ++i) xorshift1024star(_state); }
 
     inline static T min() { return xorshift_engine_base<T>::base_min(); }
@@ -171,15 +172,15 @@ namespace bss_util {
     typedef T result_type;
 
   protected:
-    unsigned __int64 _state[17];
+    uint64_t _state[17];
   };
 
-  inline static unsigned __int64 xorshiftrand(unsigned __int64 seed=0) {
-    static unsigned __int64 state[17];
+  inline static uint64_t xorshiftrand(uint64_t seed=0) {
+    static uint64_t state[17];
     if(seed) genxor1024seed(seed, state);
     return xorshift1024star(state);
   }
-  typedef xorshift_engine<unsigned __int64> xorshift_engine64;
+  typedef xorshift_engine<uint64_t> xorshift_engine64;
 
   template<typename T, class ENGINE, typename ET>
   T __bss_gencanonical(ENGINE& e, ET _Emin)
@@ -207,21 +208,21 @@ namespace bss_util {
     return __bss_gencanonical<T,ENGINE>(e, (typename ENGINE::result_type)e.min());
   }
 
-  inline static xorshift_engine<unsigned __int64>& bss_getdefaultengine()
+  inline static xorshift_engine<uint64_t>& bss_getdefaultengine()
   {
-    static xorshift_engine<unsigned __int64> e;
+    static xorshift_engine<uint64_t> e;
     return e;
   }
 
   // Generates a number in the range [min,max) using the given engine.
-  template<typename T, typename ENGINE = xorshift_engine<unsigned __int64>>
+  template<typename T, typename ENGINE = xorshift_engine<uint64_t>>
   inline static T bssrand(T min, T max, ENGINE& e = bss_getdefaultengine())
   {
     return min+static_cast<T>(bss_gencanonical<double, ENGINE>(e)*static_cast<double>(max-min));
   }
   inline static double bssrandreal(double min, double max) { return bssrand<double>(min, max); }
-  inline static __int64 bssrandint(__int64 min, __int64 max) { return bssrand<__int64>(min, max); }
-  inline static void bssrandseed(unsigned __int64 s) { bss_getdefaultengine().seed(s); }
+  inline static int64_t bssrandint(int64_t min, int64_t max) { return bssrand<int64_t>(min, max); }
+  inline static void bssrandseed(uint64_t s) { bss_getdefaultengine().seed(s); }
 
   // Shuffler using Fisher-Yates/Knuth Shuffle algorithm based on Durstenfeld's implementation.
   template<typename T, typename CT, typename ENGINE>
@@ -237,8 +238,8 @@ namespace bss_util {
   template<typename T>
   BSS_FORCEINLINE static void BSS_FASTCALL shuffle(T* p, int size)
   {
-    xorshift_engine<unsigned __int64> e; 
-    shuffle<T, int, xorshift_engine<unsigned __int64>>(p, size, e);
+    xorshift_engine<uint64_t> e; 
+    shuffle<T, int, xorshift_engine<uint64_t>>(p, size, e);
   }
   template<typename T, int size>
   BSS_FORCEINLINE static void BSS_FASTCALL shuffle(T(&p)[size]) { shuffle<T>(p, size); }
@@ -251,7 +252,7 @@ namespace bss_util {
   BSS_FORCEINLINE static void for_each(T(&t)[SIZE], F func) { std::for_each(std::begin(t), std::end(t), func); }
 
   // Random queue that pops a random item instead of the last item.
-  template<typename T, typename CType = unsigned int, typename ENGINE = xorshift_engine<unsigned __int64>, ARRAY_TYPE ArrayType = CARRAY_SIMPLE, typename Alloc = StaticAllocPolicy<T>>
+  template<typename T, typename CType = unsigned int, typename ENGINE = xorshift_engine<uint64_t>, ARRAY_TYPE ArrayType = CARRAY_SIMPLE, typename Alloc = StaticAllocPolicy<T>>
   class BSS_COMPILER_DLLEXPORT cRandomQueue : protected cDynArray<T, CType, ArrayType, Alloc>
   {
   protected:
@@ -291,7 +292,7 @@ namespace bss_util {
   static const double ZIGNOR_R = 3.442619855899;
 
   // Instance for generating random samples from a normal distribution.
-  template<int ZIGNOR_C=128, typename T=double, typename ENGINE = xorshift_engine<unsigned __int64>>
+  template<int ZIGNOR_C=128, typename T=double, typename ENGINE = xorshift_engine<uint64_t>>
   struct NormalZig
   {
     T s_adZigX[ZIGNOR_C + 1], s_adZigR[ZIGNOR_C];
@@ -381,7 +382,7 @@ namespace bss_util {
 
   // Implementation of Fast Poisson Disk Sampling by Robert Bridson
   template<typename T, typename F>
-  static void PoissonDiskSample(T(&rect)[4], T mindist, F && f, uint pointsPerIteration=30)
+  static void PoissonDiskSample(T(&rect)[4], T mindist, F && f, uint32_t pointsPerIteration=30)
   {
     //Create the grid
     T cell = mindist/(T)SQRT_TWO;
@@ -390,7 +391,7 @@ namespace bss_util {
     size_t gw = ((size_t)ceil(w/cell))+4; //gives us buffer room so we don't have to worry about going outside the grid
     size_t gh = ((size_t)ceil(h/cell))+4;
     std::array<T, 2>* grid = new std::array<T, 2>[gw*gh];      //grid height
-    uint64* ig = (uint64*)grid;
+    uint64_t* ig = (uint64_t*)grid;
     memset(grid, 0xFFFFFFFF, gw*gh*sizeof(std::array<T, 2>));
     assert(!(~ig[0]));
 
@@ -409,7 +410,7 @@ namespace bss_util {
     while(!list.Empty())
     {
       auto point = list.Pop();
-      for(uint i = 0; i < pointsPerIteration; i++)
+      for(uint32_t i = 0; i < pointsPerIteration; i++)
       {
         radius = mindist*((T)bssrandreal(1, 2)); //random point between mindist and 2*mindist
         angle = (T)bssrandreal(0, PI_DOUBLE);
@@ -539,6 +540,13 @@ namespace bss_util {
     }
   }
 
+  template<typename T, typename D>
+  inline T QuadraticBezierCurve(D t, const T& p0, const T& p1, const T& p2)
+  {
+    D inv = D(1) - t;
+    return (inv*inv*p0) + (D(2) * inv*t*p1) + (t*t*p2);
+  }
+
   // Find a quadratic curve (A,B,C) that passes through 3 points
   template<typename T>
   inline T QuadraticFit(T t, T x1, T y1, T x2, T y2, T x3, T y3)
@@ -571,6 +579,199 @@ namespace bss_util {
     //T C = 0 - A*0 - B*0;
 
     return (A*t*t + B*t)*(x3 - x1) + x1; // reverse our transformation
+  }
+
+  // Splits a cubic (P0,P1,P2,P3) into two cubics: (P0, N1, N2, N3) and (N3, R1, R2, P3) using De Casteljau's Algorithm
+  template<typename T, int I>
+  inline static void SplitCubic(T t, const T(&P0)[I], const T(&P1)[I], const T(&P2)[I], const T(&P3)[I], T(&N1)[I], T(&N2)[I], T(&N3)[I], T(&R1)[I], T(&R2)[I])
+  {
+    T F[I]; // A = P0, B = P1, C = P2, D = P3, E = N1, F, G = R2, H = N2, J = R1, K = N3
+    for(int i = 0; i < I; ++i)
+    {
+      N1[i] = lerp<T>(P0[i], P1[i], t); // lerp(A+B)
+      F[i] = lerp<T>(P1[i], P2[i], t); // lerp(B+C)
+      R2[i] = lerp<T>(P2[i], P3[i], t); // lerp(C+D)
+      N2[i] = lerp<T>(N1[i], F[i], t); // lerp(E+F)
+      R1[i] = lerp<T>(F[i], R2[i], t); // lerp(F+G)
+      N3[i] = lerp<T>(N2[i], R1[i], t); // lerp(H+J)
+    }
+  }
+
+  // Splits a quadratic (P0, P1, P2) into two quadratics: (P0, N1, N2) and (N2, R1, P2) using De Casteljau's Algorithm
+  template<typename T, int I>
+  inline static void SplitQuadratic(T t, const T(&P0)[I], const T(&P1)[I], const T(&P2)[I], T(&N1)[I], T(&N2)[I], T(&R1)[I])
+  {
+    for(int i = 0; i < I; ++i)
+    {
+      N1[i] = lerp<T>(P0[i], P1[i], t);
+      R1[i] = lerp<T>(P1[i], P2[i], t);
+      N2[i] = lerp<T>(N1[i], R1[i], t);
+    }
+  }
+
+  // Solves a quadratic equation of the form at² + bt + c
+  template<typename T>
+  inline static void SolveQuadratic(T a, T b, T c, T(&r)[2])
+  {
+    T d = FastSqrt<T>(b*b - 4*a*c);
+    r[0] = (-b - d) / (2 * a);
+    r[1] = (-b + d) / (2 * a);
+  }
+
+  // See: http://www.caffeineowl.com/graphics/2d/vectorial/cubic-inflexion.html
+  template<typename T>
+  inline static void CubicInflectionPoints(const T(&P0)[2], const T(&P1)[2], const T(&P2)[2], const T(&P3)[2], T(&r)[2])
+  {
+    T a[2];
+    T b[2];
+    T c[2];
+    for(int i = 0; i < 2; ++i)
+    {
+      a[i] = P1[i] - P0[i];
+      b[i] = P2[i] - P1[i] - a[i];
+      c[i] = P3[i] - P2[i] - a[i] - 2 * b[i];
+    }
+    SolveQuadratic<T>(b[0] * c[1] - b[1] * c[0], a[0] * c[1] - a[1] * c[0], a[0] * b[1] - a[1] * b[0], r);
+  }
+
+  // Uses modified formulas from: http://www.caffeineowl.com/graphics/2d/vectorial/cubic2quad01.html
+  template<typename T, int I>
+  inline static T ApproxCubicError(const T(&P0)[I], const T(&P1)[I], const T(&P2)[I], const T(&P3)[I])
+  {
+    // The error for a quadratic approximating a cubic (sharing the anchor points) is: t·(1 - t)·|2·C - 3·C1 + P1 + 3·t·(P2 - 3·C2 + 3·C1 - P1)|    where |v| is the modulus: sqrt(v[0]² + v[1]²)
+    // If we choose C = (3·C2 - P2 + 3·C1 - P1)/4 we get f(t) = t·(1 - t)·½(6·t - 1)|(3·C_1 - 3·C_2 - P_1 + P_2)|
+    // f'(t) = -½(2·t(9·t - 7) + 1) |(3·C_1 - 3·C_2 - P_1 + P_2)| = 0 -> -½(2·t(9·t - 7) + 1) = 0 -> 2·t(9·t - 7) = -1
+    // Solving the derivative for 0 to maximize the error value, we get t = (1/18)(7±sqrt(31)). Only the + result is inside [0,1], so we plug that into t·(1 - t)·½(6·t - 1) = 77/486+(31 sqrt(31))/972 ~ 0.336008945728118
+    const double term = 0.336008945728118;
+
+    T r = 0;
+    T M; 
+    for(int i = 0; i < I; ++i) // 3·C_1 - 3·C_2 - P_1 + P_2
+    {
+      M = 3 * P1[i] - 3 * P2[i] - P0[i] + P3[i];
+      r += M*M;
+    }
+    return term * FastSqrt<T>(r);
+  }
+
+  template<typename T, typename FN>
+  inline static void ApproxCubicR(T(&t)[3], const T(&P0)[2], const T(&P1)[2], const T(&P2)[2], const T(&P3)[2], FN fn, T maxerror)
+  {
+    T N1[2];
+    T N2[2];
+    T N3[2];
+    T R1[2];
+    T R2[2];
+
+    SplitCubic(t[1], P0, P1, P2, P3, N1, N2, N3, R1, R2);
+
+    // Check first section: P0, N1, N2, N3
+    if(ApproxCubicError<T, 2>(P0, N1, N2, N3) > maxerror)
+    {
+      T tfirst[3] = { t[0], (t[1] + t[0]) / 2, t[1] };
+      ApproxCubicR<T, FN>(tfirst, P0, N1, N2, N3, fn, maxerror);
+    }
+    else
+    {
+      T C[2]; // (3·(P2 + P1) - P3 - P0) / 4
+      for(int i = 0; i < 2; ++i)
+        C[i] = (3*(N2[i] + N1[i]) - N3[i] - P0[i]) / 4;
+      fn(P0, C, N3);
+    }
+    // Check second section: N3, R1, R2, P3
+    if(ApproxCubicError<T, 2>(N3, R1, R2, P3) > maxerror)
+    {
+      T tsecond[3] = { t[1], (t[2] + t[1]) / 2, t[2] };
+      ApproxCubicR<T, FN>(tsecond, N3, R1, R2, P3, fn, maxerror);
+    }
+    else
+    {
+      T C[2]; // (3·(P2 + P1) - P3 - P0) / 4
+      for(int i = 0; i < 2; ++i)
+        C[i] = (3 * (R2[i] + R1[i]) - P3[i] - N3[i]) / 4;
+      fn(N3, C, P3);
+    }
+  }
+
+  template<typename T, typename FN>
+  inline static void ApproxCubic(const T(&P0)[2], const T(&P1)[2], const T(&P2)[2], const T(&P3)[2], FN fn, T maxerror = FLT_EPSILON)
+  {
+    T r[2];
+    CubicInflectionPoints<T>(P0, P1, P2, P3, r);
+    T t[3] = { 0.0, (r[0] >= 0.0 && r[0] <= 1.0) ? r[0] : ((r[1] >= 0.0 && r[1] <= 1.0) ? r[1] : 0.5), 1.0 };
+    ApproxCubicR<T, FN>(t, P0, P1, P2, P3, fn, maxerror); // Call recursive function that does the actual splitting
+  }
+
+  // Solves a cubic equation of the form at^3 + bt² + ct + d by normalizing it (dividing everything by a).
+  template<typename T>
+  inline int solveCubic(T at, T bt, T ct, T dt, T (&r)[3])
+  {
+    T a = bt / at;
+    T b = ct / at;
+    T c = dt / at;
+    T p = b - a*a / 3;
+    T q = a * (2 * a*a - 9 * b) / 27 + c;
+    T p3 = p*p*p;
+    T d = q*q + 4 * p3 / 27;
+    T offset = -a / 3;
+    if(d >= 0) { // Single solution
+      T z = FastSqrt<T>(d);
+      T u = (-q + z) / 2;
+      T v = (-q - z) / 2;
+      u = cbrt(u);
+      v = cbrt(v);
+      r[0] = offset + u + v;
+      return 1;
+    }
+    T u = FastSqrt<T>(-p / 3);
+    T v = acos(-FastSqrt<T>(-27 / p3) * q / 2) / 3;
+    T m = cos(v), n = sin(v)*((T)1.732050808);
+    r[0] = offset + u * (m + m);
+    r[1] = offset - u * (n + m);
+    r[2] = offset + u * (n - m);
+    return 3;
+  }
+
+  // Uses Newton's method to find the root of F given it's derivative dF. Returns false if it fails to converge within the given error range.
+  template<typename T, typename TF, typename TDF>
+  inline static bool NewtonRaphson(T& result, T estimate, TF F, TDF dF, T epsilon, unsigned int maxiterations = 20)
+  {
+    T x = estimate;
+    for(unsigned int i = 0; i < maxiterations; ++i)
+    {
+      T f = F(x);
+      if(fsmall(f, epsilon)) // If we're close enough to zero, return our value
+      {
+        result = x;
+        return true;
+      }
+      x = x - (f / dF(x));
+    }
+    return false; // We failed to converge to the required error bound within the given number of iterations
+  }
+
+  // A hybrid method that combines both Newton's method and the bisection method, using the bisection method to improve the guess until Newton's method finally starts to converge.
+  template<typename T, typename TF, typename TDF>
+  inline static T NewtonRaphsonBisection(T estimate, T min, T max, TF F, TDF dF, T epsilon, unsigned int maxiterations = 50)
+  {
+    T x = estimate;
+    for(unsigned int i = 0; i < maxiterations; ++i)
+    {
+      T f = F(x);
+      if(fsmall(f, epsilon)) // If we're close enough to zero, return x
+        return x;
+
+      if(f > 0)
+        max = x;
+      else
+        min = x;
+
+      x = x - f / dF(x);
+
+      if(x <= min || x >= max) // If candidate is out of range, use bisection instead
+        x = 0.5*(min + max);
+    }
+    return x; // Return a good-enough value. Because we're using bisection, it has to be at least reasonably close to the root.
   }
 
   inline static size_t BSS_FASTCALL Base64Encode(const unsigned char* src, size_t cnt, char* out)
