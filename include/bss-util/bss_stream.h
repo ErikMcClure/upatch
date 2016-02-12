@@ -81,7 +81,7 @@ namespace bss_util {
     }
     inline virtual std::streamsize showmanyc() { assert(_read <= _ref.Length()); return _read - _ref.Length(); }
 
-    virtual pos_type __CLR_OR_THIS_CALL seekoff(off_type off, std::ios_base::seekdir way, std::ios_base::openmode which_)
+    virtual pos_type seekoff(off_type off, std::ios_base::seekdir way, std::ios_base::openmode which_)
     {	// change position by offset, according to way and mode
       switch(way)
       {
@@ -99,7 +99,7 @@ namespace bss_util {
       return _read;
     }
 
-    virtual pos_type __CLR_OR_THIS_CALL seekpos(pos_type sp_, std::ios_base::openmode which_)
+    virtual pos_type seekpos(pos_type sp_, std::ios_base::openmode which_)
     {	// change to specified position, according to mode
       return seekoff(off_type(sp_), std::ios_base::beg, which_);
     }
@@ -120,10 +120,10 @@ namespace bss_util {
     DynArrayBuf(DynArrayBuf&& mov) : BASE(std::move(mov)), _write(mov._write) { mov._write = (CType)-1; }
     DynArrayBuf(cDynArray<T, CType, ArrayType, Alloc>& ref, CType begin = (CType)-1) : BASE(ref), _write((begin == (CType)-1) ? ref.Length() : begin) {}
 
-    inline DynArrayBuf& operator =(DynArrayIBuf&& right) { BASE::operator=(std::move(right)); _write = right._write; right._write = (CType)-1; return *this; }
+    inline DynArrayBuf& operator =(BASE&& right) { BASE::operator=(std::move(right)); _write = right._write; right._write = (CType)-1; return *this; }
 
   protected:
-    int_type overflow(int_type ch) { const_cast<cDynArray<T, CType, ArrayType, Alloc>&>(BASE::_ref).Insert(ch, _write++); return ch; }
+    typename BASE::int_type overflow(typename BASE::int_type ch) { const_cast<cDynArray<T, CType, ArrayType, Alloc>&>(BASE::_ref).Insert(ch, _write++); return ch; }
 
     CType _write;
   };
