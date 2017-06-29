@@ -5,3 +5,6 @@
 *.aps
 *.vcxproj.user
 bin/
+.vs/
+uPatch/x64
+uPatch/Win32

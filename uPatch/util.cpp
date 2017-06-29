@@ -1,76 +1,57 @@
-#include "upatch.h"
-#include "bss-util/cStr.h"
-#include "zlib/zlib.h"
+// Copyright ©2017 Black Sphere Studios
+
+#include "Util.h"
+#include "Options.h"
+#include "Payload.h"
+#include "Patches.h"
+#include "os.h"
+#include "bss-util/Str.h"
+#include "bss-util/algo.h"
+#include "bss-util/stream.h"
+#include "bss-util/os.h"
+#include "zlib.h"
 #include "md5.h"
-#include "zdelta-2.1\zdlib.h"
+#include "curl/curl.h"
 #include <iostream>
 #include <fstream>
 
-bool DeleteSelf()
+using namespace upatch;
+using namespace bss;
+
+struct DLStream
 {
-#ifdef BSS_PLATFORM_WIN32
-  char buf[2048];
-  GetModuleFileNameA(0, buf, 2048);
-  CopyFileA(buf, TEMP_EXE_PATH, FALSE);
-  SECURITY_ATTRIBUTES sa;
-  sa.nLength = sizeof(sa);
-  sa.lpSecurityDescriptor = NULL;
-  sa.bInheritHandle = TRUE;
-
-  HANDLE hFile = CreateFileA(TEMP_EXE_PATH, 0, FILE_SHARE_READ | FILE_SHARE_DELETE, &sa, OPEN_EXISTING, FILE_FLAG_DELETE_ON_CLOSE, 0);
-  cStr cmd = cStrF("\"%s\" -x %i \"%s\"", TEMP_EXE_PATH, GetCurrentProcessId(), buf);
-  STARTUPINFOA startinfo = { 0 };
-  startinfo.cb = sizeof(STARTUPINFOA);
-  PROCESS_INFORMATION procinfo = { 0 };
-  if(!CreateProcessA(TEMP_EXE_PATH, cmd.UnsafeString(), 0, 0, TRUE, NORMAL_PRIORITY_CLASS, 0, 0, &startinfo, &procinfo))
-  {
-    std::cout << "FAILURE: Could not start temporary file!";
-    return false;
-  }
-  HANDLE hProc = OpenProcess(SYNCHRONIZE, FALSE, procinfo.dwProcessId);
-  WaitForInputIdle(hProc, INFINITE);
-  CloseHandle(hProc);
-  CloseHandle(hFile);
-#else // POSIX
-
-#endif
-  return true;
-}
-
-bool ExecuteProcess(char* str)
-{
-#ifdef BSS_PLATFORM_WIN32
-  STARTUPINFOA si = { 0 };
-  si.cb = sizeof(STARTUPINFOA);
-  PROCESS_INFORMATION pi = { 0 };
-  if(!CreateProcessA(0, str, 0, 0, FALSE, NORMAL_PRIORITY_CLASS, 0, 0, &si, &pi))
-  {
-    std::cout << "FAILURE: Could not execute " << str << std::endl;
-    return false;
-  }
-#endif
-  return true;
-}
+  std::ostream& out;
+  MD5_CTX& md5;
+};
 
 size_t curl_write_stream(char *ptr, size_t size, size_t nmemb, void* userdata)
 {
-  ((std::ostream*)userdata)->write(ptr, size*nmemb);
+  DLStream* s = reinterpret_cast<DLStream*>(userdata);
+  MD5_Update(&s->md5, ptr, size*nmemb);
+  s->out.write(ptr, size*nmemb);
   return size*nmemb;
 }
 
-char DownloadFile(const char* url, std::ostream& s, curl_progress_callback* callback, void* data)
+ERROR_CODES upatch::DownloadFile(const char* url, std::ostream& s, uint8_t(&md5hash)[16], curl_xferinfo_callback callback, void* callbackdata)
 {
   CURL* curl = curl_easy_init();
   if(!curl) return ERR_CURL_FAILURE;
+  MD5_CTX ctx;
+  MD5_Init(&ctx);
+  z_stream zstream = { 0 };
+
+  DLStream stream = { s, ctx };
   curl_easy_setopt(curl, CURLOPT_URL, url);
   curl_easy_setopt(curl, CURLOPT_NOPROGRESS, !callback?0:1);
   if(callback) curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, callback);
-  if(callback) curl_easy_setopt(curl, CURLOPT_XFERINFODATA, data);
+  if(callback) curl_easy_setopt(curl, CURLOPT_XFERINFODATA, callbackdata);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_stream);
-  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &s);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &stream);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2);
 
-  char r = ERR_SUCCESS;
-  switch(curl_easy_perform(curl))
+  ERROR_CODES r = ERR_SUCCESS;
+  CURLcode code = curl_easy_perform(curl);
+  switch(code)
   {
   case CURLE_OK:
     break;
@@ -89,31 +70,45 @@ char DownloadFile(const char* url, std::ostream& s, curl_progress_callback* call
   case CURLE_FTP_WEIRD_PASS_REPLY:
     r = ERR_DOWNLOAD_ACCESS_DENIED;
     break;
-  case CURLE_PARTIAL_FILE:
   case CURLE_FILESIZE_EXCEEDED:
   case CURLE_FTP_COULDNT_RETR_FILE:
   case CURLE_OUT_OF_MEMORY:
     r = ERR_DOWNLOAD_INTERRUPTED;
     break;
-  default: r = ERR_CURL_FAILURE;
+  case CURLE_PARTIAL_FILE:
+    r = ERR_DOWNLOAD_CORRUPT;
+    break;
+  default:
+    r = ERR_CURL_FAILURE;
+    break;
   }
+  if(code != CURLE_OK)
+    UPLOG(2, "CURL error: ", code);
 
   curl_easy_cleanup(curl);
+  MD5_Final(md5hash, &ctx);
   return r;
 }
 
-char _cmpver(const int* o, const int* n)
+ERROR_CODES upatch::DownloadHop(const Source::Hop& hop, std::ostream& s, int(*callback)(void*, long long, long long, long long, long long), void* callbackdata)
 {
-  char r = 0;
-  for(int i = 0; i < 4; ++i)
-    r = !r ? ((n[i] > o[i]) - (n[i] < o[i])) : r;
-  return r;
+  MD5HASH hash;
+  ERROR_CODES err = ERR_NO_VALID_MIRRORS;
+  for(auto& mirror : hop.mirrors)
+  {
+    if((err = DownloadFile(mirror.c_str(), s, hash, callback, callbackdata)) == ERR_SUCCESS)
+      break;
+  }
+  if(err != ERR_SUCCESS)
+    return ERR_NO_VALID_MIRRORS;
+  MD5HASH hophash;
+  ConvertMD5(hop.md5.c_str(), hophash);
+  if(!CompareMD5(hophash, hash, "Downloaded file"))
+    return ERR_DOWNLOAD_CORRUPT;
+  return ERR_SUCCESS;
 }
-char cmpver(const std::array<int, 4>& o, const std::array<int, 4>& n) { return _cmpver(o.data(), n.data()); }
-char cmpver(const int(&o)[4], const int(&n)[4]) { return _cmpver(o, n); }
 
-
-char ToControlError(char err)
+ERROR_CODES upatch::ToControlError(ERROR_CODES err)
 {
   switch(err)
   {
@@ -125,7 +120,7 @@ char ToControlError(char err)
 }
 
 const static int CHUNK = (1 << 18);
-char packzip(std::istream& in, std::ostream& out, char level)
+char upatch::PackZip(std::istream& in, std::ostream& out, char level)
 {
   int ret, flush;
   unsigned have;
@@ -170,7 +165,7 @@ char packzip(std::istream& in, std::ostream& out, char level)
   return ERR_SUCCESS;
 }
 
-char unpackzip(std::istream& in, std::ostream& out)
+char upatch::UnpackZip(std::istream& in, std::ostream& out)
 {
   int ret;
   unsigned have;
@@ -225,100 +220,271 @@ char unpackzip(std::istream& in, std::ostream& out)
   return ret == Z_STREAM_END ? ERR_SUCCESS : ERR_FATAL;
 }
 
-void calcmd5(std::istream& in, unsigned char(&out)[16])
+size_t upatch::CalcMD5(std::istream& in, uint8_t(&out)[16])
 {
   static const int CHUNK = 16384;
   MD5_CTX ctx;
   MD5_Init(&ctx);
   char bytes[CHUNK];
+  size_t size = 0;
 
   do
   {
     in.read(bytes, CHUNK);
+    size += in.gcount();
     MD5_Update(&ctx, bytes, in.gcount());
   } while(!!in && !in.eof() && in.peek() != -1);
 
   MD5_Final(out, &ctx);
+  return size;
 }
 
-bool CheckWritePermission(const char* file)
+bool upatch::CheckWritePermission(const char* file)
 {
   std::fstream f(file, std::ios_base::out | std::ios_base::binary);
   if(!f)
   {
-    std::cout << "ERROR: Do not have write permissions to " << file << std::endl;
+    UPLOG(2, "Do not have write access to ", file);
     return false;
   }
   f.close();
   return true;
 }
 
-char packdelta(std::istream& ofile, std::istream& nfile, std::ostream& out)
+bool upatch::ConvertMD5(const char* in, uint8_t(&out)[16])
 {
-  //static const int BUFFER_SIZE = 0b10000000000000000000;
-  static const int BUFFER_SIZE = 512;
+  size_t len = strlen(in);
+  if(Base64Decode(in, len, 0) != 16)
+    return false;
 
-  char refbuf[BUFFER_SIZE];
-  char targetbuf[BUFFER_SIZE];
-  char outbuf[BUFFER_SIZE];
-  int rval;
-  zd_stream s;
-  
-  s.base[0] = (Bytef*)refbuf;
-  s.base_avail[0] = BUFFER_SIZE;
-  s.base_out[0] = 0;
-  s.refnum = 1;
-
-  s.next_in = (Bytef*)targetbuf;
-  s.total_in = 0;
-  s.avail_in = BUFFER_SIZE;
-
-  s.next_out = (Bytef*)outbuf;
-  s.total_out = 0;
-  s.avail_out = BUFFER_SIZE;
-
-  s.zalloc = (alloc_func)0;
-  s.zfree = (free_func)0;
-  s.opaque = (voidpf)0;
-
-  ofile.read(refbuf, BUFFER_SIZE);
-  nfile.read(targetbuf, BUFFER_SIZE);
-
-  /* init huffman coder */
-  rval = zd_deflateInit(&s, ZD_DEFAULT_COMPRESSION);
-  if(rval != ZD_OK)
-  {
-    fprintf(stderr, "%s error: %d\n", "deflateInit", rval);
-    return rval;
-  }
-
-  /* compress the data */
-  while((rval = zd_deflate(&s, ZD_FINISH)) == ZD_OK) {
-    ofile.read(refbuf, BUFFER_SIZE);
-    s.base[0] = (Bytef*)refbuf;
-    s.base_avail[0] = BUFFER_SIZE;
-
-    nfile.read(targetbuf, BUFFER_SIZE);
-    s.next_in = (Bytef*)targetbuf;
-    s.avail_in = BUFFER_SIZE;
-
-    out.write(outbuf, BUFFER_SIZE - s.avail_out);
-    s.next_out = (Bytef*)outbuf;
-    s.avail_out = BUFFER_SIZE;
-  }
-
-  out.write(outbuf, BUFFER_SIZE - s.avail_out);
-
-  if(rval != ZD_STREAM_END) {
-    fprintf(stderr, "%s error: %d\n", "deflateInit", rval);
-    zd_deflateEnd(&s);
-    return rval;
-  }
-
-  return zd_deflateEnd(&s);
+  Base64Decode(in, len, out);
+  return true;
 }
 
-char applydelta(std::istream& delta, std::istream& file, std::ostream& out)
+Str upatch::ConvertMD5(const uint8_t(&in)[16])
 {
+  Str out;
+  out.resize(Base64Encode(in, 16, 0));
+  Base64Encode(in, 16, out.UnsafeString());
+  return out;
+}
 
+bool upatch::CompareMD5(uint8_t(&l)[16], uint8_t(&r)[16], const char* debugname)
+{
+  if(!memcmp(l, r, 16))
+    return true;
+  if(debugname)
+    UPLOG(2, debugname, " hash [", ConvertMD5(l), "] does not match expected hash [", ConvertMD5(r), "]");
+  return false;
+}
+
+typedef std::pair<bssVersionInfo, const Source::Hop*> HopPair;
+
+void r_find_hops(bssVersionInfo v, const Source::Hop& h, std::vector<HopPair>& edges, std::vector<Source::Hop>& out)
+{
+  if(h.mirrors.empty()) return; // If we have no valid mirrors this whole chain is invalid
+  auto iter = std::lower_bound(edges.begin(), edges.end(), v, [](HopPair& a, bssVersionInfo b) -> bool { return b.version < a.first.version; });
+
+  for(; !iter->first.version == v.version; ++iter)
+  {
+    r_find_hops(iter->second->to, *iter->second, edges, out);
+    if(!out.empty())
+    {
+      out.push_back(h);
+      return;
+    }
+  }
+}
+
+void upatch::FindHops(bssVersionInfo version, const Source& src, std::vector<Source::Hop>& out)
+{
+  if(version.version >= src.latest.version)
+    return; // There's nothing to update!
+
+  std::vector<HopPair> bases; // List of base versions. We start with our version, then work down the list of available full updates.
+  std::vector<HopPair> edges; // list of version hops in [from, hop*] form.
+
+  for(const Source::Hop& h : src.hops)
+  {
+    if(!h.from.version)
+      bases.push_back(HopPair(h.to, &h));
+    else
+      bases.push_back(HopPair(h.from, &h));
+  }
+
+  std::sort(bases.begin(), bases.end(), [](HopPair& a, HopPair& b) { return b.first.version < a.first.version; });
+  std::sort(edges.begin(), edges.end(), [](HopPair& a, HopPair& b) { char r = SGNCOMPARE(b.first.version, a.first.version); return !r ? SGNCOMPARE(b.first.version, a.first.version) : r; });
+  bases.insert(bases.begin(), HopPair(version, &Source::Hop::EMPTY)); // insert current version before sorted elements
+
+  for(HopPair& pair : bases)
+  {
+    r_find_hops(pair.first, *pair.second, edges, out);
+    if(!out.empty())
+      break;
+  }
+
+  std::reverse(out.data(), out.data() + out.size());
+}
+
+ERROR_CODES upatch::CreatePatch(const char* from, const char* to, const char* reg, upatch::Payload& payload, std::ostream& out)
+{
+  assert(from);
+  std::vector<Str> fromfiles;
+  std::vector<Str> tofiles;
+  ListDir(from, fromfiles, 1);
+  if(to)
+    ListDir(to, tofiles, 1);
+  auto fn = [](const Str& l, const Str& r) -> bool { return strcmp(l, r) < 0; };
+  std::sort(fromfiles.begin(), fromfiles.end(), fn);
+  std::sort(tofiles.begin(), tofiles.end(), fn);
+
+  while(fromfiles.size() || tofiles.size())
+  {
+    if(!fromfiles.size() || fn(fromfiles.back(), tofiles.back()))
+    {
+      BinaryPayloadAdd add = { tofiles.back() };
+      std::ifstream fs(to + tofiles.back(), std::ios_base::in | std::ios_base::binary);
+      add.data = CalcMD5(fs, add.self);
+      fs.close();
+      add.absolute = false;
+      payload.update.push_back(PayloadPack(add));
+      tofiles.pop_back();
+      continue;
+    }
+
+    if(!tofiles.size() || fn(tofiles.back(), fromfiles.back()))
+    {
+      BinaryPayloadRemove rm = { fromfiles.back() };
+      std::ifstream fs(from + fromfiles.back(), std::ios_base::in | std::ios_base::binary);
+      CalcMD5(fs, rm.target);
+      rm.absolute = false;
+      payload.update.push_back(PayloadPack(rm));
+      fromfiles.pop_back();
+      continue;
+    }
+
+    assert(!strcmp(tofiles.back(), fromfiles.back()));
+    BinaryPayloadDelta delta;
+    delta.file.path = tofiles.back();
+    delta.file.absolute = false;
+    
+    std::ifstream tfs(to + tofiles.back(), std::ios_base::in | std::ios_base::binary);
+    CalcMD5(tfs, delta.result);
+    std::ifstream ffs(from + fromfiles.back(), std::ios_base::in | std::ios_base::binary);
+    CalcMD5(ffs, delta.target);
+    std::ofstream dfs(to + tofiles.back() + Options::DELTA_EXT_NAME, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
+
+    delta.patch = PATCH_DEFAULT;
+    DeltaCreate(ffs, tfs, dfs, delta.patch, delta.file.data, delta.file.self);
+    tfs.close();
+    ffs.close();
+    dfs.close();
+    payload.update.push_back(PayloadPack(delta));
+  }
+  if(reg != 0)
+  {
+    std::ifstream fs(reg, std::ios_base::in | std::ios_base::binary);
+    ParseReg(fs, payload.update);
+  }
+
+  // Write out finalized payload metadata
+  out.write((char*)&payload, sizeof(Payload));
+
+  const int CHUNK = (1 << 18);
+  char buf[CHUNK];
+
+  // Generate and write out finalized payload data block
+  for(auto& p : payload.update)
+  {
+    switch(p.tag())
+    {
+    case PayloadPack::Type<BinaryPayloadAdd>::value:
+    {
+      std::ifstream fs(p.get<BinaryPayloadAdd>().path, std::ios_base::in | std::ios_base::binary);
+      size_t expected = p.get<BinaryPayloadAdd>().data;
+      while(expected)
+      {
+        fs.read(buf, CHUNK);
+        expected -= fs.gcount();
+        out.write(buf, fs.gcount());
+      }
+      if(fs.get() != std::char_traits<char>::eof())
+      {
+        UPLOG(1, "Delta pack generation aborted because file was not expected length of ", p.get<BinaryPayloadAdd>().data);
+        return ERR_FATAL;
+      }
+      fs.close();
+    }
+    break;
+    case PayloadPack::Type<BinaryPayloadDelta>::value:
+    {
+      Str file = to + p.get<BinaryPayloadDelta>().file.path + Options::DELTA_EXT_NAME;
+      std::ifstream fs(file, std::ios_base::in | std::ios_base::binary);
+      size_t expected = p.get<BinaryPayloadDelta>().file.data;
+      while(expected)
+      {
+        fs.read(buf, CHUNK);
+        expected -= fs.gcount();
+        out.write(buf, fs.gcount());
+      }
+      if(fs.get() != std::char_traits<char>::eof())
+      {
+        UPLOG(1, "Delta pack generation aborted because file was not expected length of ", p.get<BinaryPayloadDelta>().file.data);
+        return ERR_FATAL;
+      }
+      fs.close();
+      std::remove(file); // delete temporary delta file
+    }
+    break;
+    }
+  }
+
+  return ERR_SUCCESS;
+}
+ERROR_CODES upatch::CreatePatchGit(const char* commitfrom, const char* curcommit, const char* reg, upatch::Payload& payload, std::ostream& out)
+{
+  return ERR_FATAL;
+  // If curcommit is NULL, simply use HEAD
+
+  // Looks up which files changed between the old and the new commits
+
+
+  // Switches the entire branch to the old commit, then copies all those files to a temporary folder
+
+
+  // Switches entire branch to the new commit (or HEAD)
+
+
+  // Now creates a patch using the temporary folder as the from directory
+
+
+
+
+  // Deletes the temporary folder
+}
+
+Str upatch::GetCurrentDir()
+{
+  Str curdir = GetCurrentPath();
+  if(char* p = strrchr(curdir.UnsafeString(), L'/'))
+    p[1] = 0;
+  if(char* p = strrchr(curdir.UnsafeString(), L'\\'))
+    p[1] = 0;
+  assert(curdir.back() == '/' || curdir.back() == '\\');
+  return curdir;
+}
+
+Str upatch::GetCurrentName()
+{
+  Str curdir = GetCurrentPath();
+  if(char* p = strrchr(curdir.UnsafeString(), L'/'))
+    return Str(p + 1);
+  if(char* p = strrchr(curdir.UnsafeString(), L'\\'))
+    return Str(p + 1);
+  return curdir;
+}
+
+ERROR_CODES upatch::ParseReg(std::istream& file, std::vector<PayloadPack>& pack)
+{
+  return ERR_FATAL;
 }
